@@ -46,7 +46,10 @@ docker network create core_net
 
 ```bash
 mkdir -p data/letsencrypt
-touch data/letsencrypt/acme.json
+printf '{}' > data/letsencrypt/acme.json
+chmod 755 config config/dynamic data data/letsencrypt
+chmod 644 compose.yml config/traefik.yml config/dynamic/routes.yml
+chmod 600 .env
 chmod 600 data/letsencrypt/acme.json
 ```
 
@@ -64,6 +67,44 @@ docker compose logs -f traefik
 ```
 
 Traefik 容器会挂载宿主机的 `/etc/localtime`，日志时间跟随 Linux 服务器系统时区。
+
+## 文件权限
+
+Linux 服务器建议使用以下权限：
+
+```bash
+chmod 755 config config/dynamic data data/letsencrypt
+chmod 644 compose.yml config/traefik.yml config/dynamic/routes.yml .env.example README.md
+chmod 600 .env data/letsencrypt/acme.json
+```
+
+权限含义：
+
+- `.env` 包含 Cloudflare Token，只允许当前用户读写。
+- `data/letsencrypt/acme.json` 包含 Let's Encrypt 账号和证书私钥，只允许当前用户读写。
+- `compose.yml`、`config/traefik.yml`、`config/dynamic/routes.yml` 只需要普通只读权限。
+- `config/`、`data/` 目录需要可进入权限，否则 Docker bind mount 可能失败。
+
+## 常见问题
+
+如果日志出现：
+
+```text
+unable to get ACME account: unexpected end of JSON input
+Router uses a nonexistent certificate resolver
+```
+
+说明 `data/letsencrypt/acme.json` 是空文件或损坏 JSON，导致 `letsencrypt` resolver 被 Traefik 跳过。首次部署且还没有签发证书时，可以这样修复：
+
+```bash
+docker compose stop traefik
+printf '{}' > data/letsencrypt/acme.json
+chmod 600 data/letsencrypt/acme.json
+docker compose up -d traefik
+docker compose logs -f traefik
+```
+
+如果这个文件已经有真实证书内容，先备份再处理，不要直接覆盖。
 
 ## Cloudflare 访问控制
 
