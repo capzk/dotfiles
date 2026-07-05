@@ -1,7 +1,7 @@
 name: ${COMPOSE_PROJECT_NAME:-traefik}
 
 networks:
-  proxy:
+  app_proxy:
     external: true
     name: ${TRAEFIK_DOCKER_NETWORK:-proxy}
   socket_proxy:
@@ -70,5 +70,5 @@ services:
       timeout: 5s
       retries: 3
     networks:
-      - proxy
+      - app_proxy
       - socket_proxy

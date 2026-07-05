@@ -35,7 +35,13 @@ cp .env.example .env
 docker network create proxy
 ```
 
-如果你把 `TRAEFIK_DOCKER_NETWORK` 改成了其他名字，这里也要使用同一个名字。
+这里的网络名必须和 `.env` 里的 `TRAEFIK_DOCKER_NETWORK` 一致。`compose.yml` 里的 `app_proxy` 只是 Compose 内部别名，真正的 Docker 网络名由 `TRAEFIK_DOCKER_NETWORK` 决定。
+
+模板默认是 `proxy`；如果你的 `.env` 是 `TRAEFIK_DOCKER_NETWORK=core_net`，就创建：
+
+```bash
+docker network create core_net
+```
 
 4. 创建证书存储文件并限制权限：
 
