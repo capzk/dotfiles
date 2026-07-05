@@ -21,7 +21,6 @@ cp .env.example .env
 
 2. 编辑 `.env`，至少修改：
 
-- `TZ`
 - `TRAEFIK_DOCKER_NETWORK`
 - `TRAEFIK_ACME_EMAIL`
 - `TRAEFIK_ACME_DOMAIN_MAIN`
@@ -63,6 +62,8 @@ docker compose up -d
 docker compose ps
 docker compose logs -f traefik
 ```
+
+Traefik 容器会挂载宿主机的 `/etc/localtime`，日志时间跟随 Linux 服务器系统时区。
 
 ## Cloudflare 访问控制
 

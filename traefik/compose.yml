@@ -33,7 +33,6 @@ services:
     depends_on:
       - docker-socket-proxy
     environment:
-      TZ: ${TZ:-UTC}
       CLOUDFLARE_DNS_API_TOKEN: ${CLOUDFLARE_DNS_API_TOKEN:?Set CLOUDFLARE_DNS_API_TOKEN in .env}
     command:
       - --certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}
@@ -46,6 +45,7 @@ services:
       - "${TRAEFIK_HTTP_PORT:-80}:80"
       - "${TRAEFIK_HTTPS_PORT:-443}:443"
     volumes:
+      - /etc/localtime:/etc/localtime:ro
       - ./config/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./config/dynamic:/etc/traefik/dynamic:ro
       - ./data/letsencrypt:/letsencrypt
