@@ -1,14 +1,16 @@
 global:
-  checkNewVersion: true
+  checkNewVersion: false
   sendAnonymousUsage: false
 
 log:
   level: INFO
 
-accessLog: {}
+accessLog:
+  bufferingSize: 100
 
 api:
   dashboard: true
+  insecure: false
 
 ping: {}
 
@@ -20,14 +22,19 @@ entryPoints:
         entryPoint:
           to: websecure
           scheme: https
+          permanent: true
   websecure:
     address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+        options: modern@file
 
 providers:
   docker:
-    endpoint: "unix:///var/run/docker.sock"
+    endpoint: "tcp://docker-socket-proxy:2375"
     exposedByDefault: false
-    network: core_net
+    watch: true
   file:
     directory: /etc/traefik/dynamic
     watch: true
@@ -40,5 +47,4 @@ certificatesResolvers:
         provider: cloudflare
         propagation:
           delayBeforeChecks: 30
-
 
