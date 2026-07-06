@@ -1,0 +1,32 @@
+name: ${COMPOSE_PROJECT_NAME:-memos}
+
+networks:
+  app_proxy:
+    external: true
+    name: ${TRAEFIK_DOCKER_NETWORK:?Set TRAEFIK_DOCKER_NETWORK in .env}
+
+services:
+  memos:
+    image: neosmemo/memos:${MEMOS_IMAGE_TAG:-stable}
+    restart: unless-stopped
+    environment:
+      MEMOS_PORT: ${MEMOS_PORT:-5230}
+      MEMOS_DRIVER: ${MEMOS_DRIVER:-sqlite}
+      MEMOS_INSTANCE_URL: ${MEMOS_INSTANCE_URL:?Set MEMOS_INSTANCE_URL in .env}
+    expose:
+      - "${MEMOS_PORT:-5230}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./data:/var/opt/memos
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK}
+      - traefik.http.routers.memos.rule=Host(`${MEMOS_HOST:?Set MEMOS_HOST in .env}`)
+      - traefik.http.routers.memos.entrypoints=websecure
+      - traefik.http.routers.memos.tls.certresolver=letsencrypt
+      - traefik.http.routers.memos.middlewares=default-security-headers@file,compress@file
+      - traefik.http.services.memos.loadbalancer.server.port=${MEMOS_PORT:-5230}
+    networks:
+      - app_proxy

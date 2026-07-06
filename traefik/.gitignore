@@ -2,3 +2,5 @@
 data/letsencrypt/acme.json
 data/letsencrypt/*.json
 *.log
+examples/*/.env
+examples/*/data/
