@@ -4,40 +4,27 @@
 
 ## 部署步骤
 
-1. 复制环境变量模板：
+1. 修改示例域名：
+
+`compose.yml` 里的 `memos.example.com` 和 `https://memos.example.com` 是示例值，部署前改成真实域名。
+
+2. 确认共享网络已存在：
 
 ```bash
-cp .env.example .env
+docker network inspect shared_services_net
 ```
 
-2. 编辑 `.env`：
+`shared_services_net` 必须和 Traefik 主配置中的外部网络名一致。如果你在 Traefik 主配置里改了网络名，这个示例的 `compose.yml` 也要同步修改。
 
-- `TRAEFIK_DOCKER_NETWORK` 必须和 Traefik 主配置中的值一致。
-- `MEMOS_HOST` 是访问域名。
-- `MEMOS_INSTANCE_URL` 是完整访问地址，通常是 `https://` 加 `MEMOS_HOST`。
-
-3. 确认共享网络已存在：
-
-```bash
-docker network inspect proxy
-```
-
-如果 `.env` 里使用的是 `TRAEFIK_DOCKER_NETWORK=core_net`，就检查：
-
-```bash
-docker network inspect core_net
-```
-
-4. 创建数据目录并设置权限：
+3. 创建数据目录并设置权限：
 
 ```bash
 mkdir -p data
 chmod 755 data
-chmod 600 .env
-chmod 644 compose.yml .env.example README.md
+chmod 644 compose.yml README.md
 ```
 
-5. 启动：
+4. 启动：
 
 ```bash
 docker compose up -d
@@ -49,6 +36,6 @@ docker compose logs -f memos
 - 不要配置 `ports: "5230:5230"`，否则会绕过 Traefik 直接暴露服务端口。
 - 示例没有使用 `container_name`，方便同一台服务器上用 Compose 项目名隔离不同服务。
 - `expose` 只声明容器内部端口，不会发布到宿主机公网。
-- `traefik.docker.network` 必须等于 `.env` 的 `TRAEFIK_DOCKER_NETWORK`。
+- `traefik.docker.network=shared_services_net` 必须和服务加入的外部网络名一致。
 - `default-security-headers@file` 和 `compress@file` 来自 Traefik 主配置的 File Provider。
 - Memos 数据保存在当前目录的 `data/`，迁移服务时需要一起备份。

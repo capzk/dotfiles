@@ -1,18 +1,25 @@
-name: ${COMPOSE_PROJECT_NAME:-traefik}
+name: traefik
 
 networks:
+  # 用户手动创建的公共业务网络。
+  # Traefik 和需要反代的业务容器都要加入这个网络。
   app_proxy:
     external: true
-    name: ${TRAEFIK_DOCKER_NETWORK:-proxy}
+    name: shared_services_net
+
+  # Traefik 与 docker-socket-proxy 通信用的内部网络。
+  # 业务容器不要加入这个网络。
   socket_proxy:
     internal: true
 
 services:
+  # 限制 Traefik 对 Docker API 的访问，避免 Traefik 直接挂载 docker.sock。
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:${DOCKER_SOCKET_PROXY_TAG:-0.3.0}
+    image: tecnativa/docker-socket-proxy:0.3.0
     restart: unless-stopped
     privileged: true
     environment:
+      # Traefik Docker Provider 需要读取的 Docker API 端点。
       CONTAINERS: 1
       EVENTS: 1
       INFO: 1
@@ -23,43 +30,47 @@ services:
       VERSION: 1
       POST: 0
     volumes:
+      # 只有 docker-socket-proxy 直接接触宿主机 Docker socket。
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - socket_proxy
 
   traefik:
-    image: traefik:${TRAEFIK_IMAGE_TAG:-v3.7}
+    image: traefik:v3.7
     restart: unless-stopped
     depends_on:
       - docker-socket-proxy
-    environment:
-      CLOUDFLARE_DNS_API_TOKEN: ${CLOUDFLARE_DNS_API_TOKEN:?Set CLOUDFLARE_DNS_API_TOKEN in .env}
+    env_file:
+      # 提供 CLOUDFLARE_DNS_API_TOKEN，用于 DNS-01 签发证书。
+      - .env
     command:
-      - --certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}
-      - --entrypoints.web.forwardedHeaders.trustedIPs=${TRAEFIK_CLOUDFLARE_SOURCE_RANGES}
-      - --entrypoints.websecure.forwardedHeaders.trustedIPs=${TRAEFIK_CLOUDFLARE_SOURCE_RANGES}
-      - --entrypoints.websecure.http.tls.domains[0].main=${TRAEFIK_ACME_DOMAIN_MAIN}
-      - --entrypoints.websecure.http.tls.domains[0].sans=${TRAEFIK_ACME_DOMAIN_SANS}
-      - --providers.docker.network=${TRAEFIK_DOCKER_NETWORK:-proxy}
+      # 部署前替换为真实邮箱和泛域名。
+      - --certificatesresolvers.letsencrypt.acme.email=admin@example.com
+      - --entrypoints.websecure.http.tls.domains[0].main=example.com
+      - --entrypoints.websecure.http.tls.domains[0].sans=*.example.com
+      # 必须和 networks.app_proxy.name、业务服务 traefik.docker.network 保持一致。
+      - --providers.docker.network=shared_services_net
     ports:
-      - "${TRAEFIK_HTTP_PORT:-80}:80"
-      - "${TRAEFIK_HTTPS_PORT:-443}:443"
+      # 生产环境公网 HTTP/HTTPS 入口，通常固定使用 80/443。
+      - "80:80"
+      - "443:443"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./config/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./config/dynamic:/etc/traefik/dynamic:ro
+      # 保存 Let's Encrypt 账号、证书和私钥，文件权限必须严格限制。
       - ./data/letsencrypt:/letsencrypt
     security_opt:
       - no-new-privileges:true
     labels:
       - traefik.enable=true
-      - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-proxy}
-      - traefik.http.routers.traefik-dashboard.rule=Host(`${TRAEFIK_DASHBOARD_HOST}`)
+      - traefik.docker.network=shared_services_net
+      # Dashboard 路由，访问控制交给 Cloudflare Access/WAF 或防火墙。
+      - traefik.http.routers.traefik-dashboard.rule=Host(`traefik.example.com`)
       - traefik.http.routers.traefik-dashboard.entrypoints=websecure
       - traefik.http.routers.traefik-dashboard.service=api@internal
       - traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt
-      - traefik.http.routers.traefik-dashboard.middlewares=cloudflare-only,default-security-headers@file
-      - traefik.http.middlewares.cloudflare-only.ipallowlist.sourcerange=${TRAEFIK_CLOUDFLARE_SOURCE_RANGES}
+      - traefik.http.routers.traefik-dashboard.middlewares=default-security-headers@file
     healthcheck:
       test:
         - CMD

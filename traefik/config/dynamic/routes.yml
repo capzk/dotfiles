@@ -1,5 +1,6 @@
 http:
   middlewares:
+    # 可复用的通用安全响应头。
     default-security-headers:
       headers:
         contentTypeNosniff: true
@@ -12,11 +13,13 @@ http:
         stsSeconds: 31536000
         customResponseHeaders:
           X-Robots-Tag: "noindex, nofollow, noarchive"
+    # 可复用的响应压缩中间件。
     compress:
       compress: {}
 
 tls:
   options:
+    # websecure 入口引用的现代 TLS 策略。
     modern:
       minVersion: VersionTLS12
       sniStrict: true
