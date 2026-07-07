@@ -1,0 +1,32 @@
+name: memos
+
+networks:
+  app_proxy:
+    external: true
+    name: shared_services_net
+
+services:
+  memos:
+    image: neosmemo/memos:stable
+    restart: unless-stopped
+    environment:
+      MEMOS_PORT: 5230
+      MEMOS_DRIVER: sqlite
+      MEMOS_INSTANCE_URL: https://memos.example.com
+    expose:
+      - "5230"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./data:/var/opt/memos
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=shared_services_net
+      - traefik.http.routers.memos.rule=Host(`memos.example.com`)
+      - traefik.http.routers.memos.entrypoints=websecure
+      - traefik.http.routers.memos.tls.certresolver=letsencrypt
+      - traefik.http.routers.memos.middlewares=default-security-headers@file,compress@file
+      - traefik.http.services.memos.loadbalancer.server.port=5230
+    networks:
+      - app_proxy

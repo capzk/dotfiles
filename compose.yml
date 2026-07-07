@@ -1,0 +1,94 @@
+name: traefik
+
+networks:
+  # 用户手动创建的公共业务网络。
+  # Traefik 和需要反代的业务容器都要加入这个网络。
+  app_proxy:
+    external: true
+    name: shared_services_net
+
+  # Traefik 与 docker-socket-proxy 通信用的内部网络。
+  # 业务容器不要加入这个网络。
+  socket_proxy:
+    internal: true
+
+services:
+  # 限制 Traefik 对 Docker API 的访问，避免 Traefik 直接挂载 docker.sock。
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    restart: unless-stopped
+    privileged: true
+    environment:
+      # Traefik Docker Provider 需要读取的 Docker API 端点。
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      NETWORKS: 1
+      PING: 1
+      SERVICES: 1
+      TASKS: 1
+      VERSION: 1
+      POST: 0
+    volumes:
+      # 只有 docker-socket-proxy 直接接触宿主机 Docker socket。
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --quiet --tries=1 --spider http://127.0.0.1:2375/_ping || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - socket_proxy
+
+  traefik:
+    image: traefik:v3.7
+    restart: unless-stopped
+    depends_on:
+      docker-socket-proxy:
+        condition: service_healthy
+    env_file:
+      # 提供 CLOUDFLARE_DNS_API_TOKEN，用于 DNS-01 签发证书。
+      - .env
+    command:
+      # 部署前替换为真实邮箱和泛域名。
+      - --certificatesresolvers.letsencrypt.acme.email=admin@example.com
+      - --entrypoints.websecure.http.tls.domains[0].main=example.com
+      - --entrypoints.websecure.http.tls.domains[0].sans=*.example.com
+      # 必须和 networks.app_proxy.name、业务服务 traefik.docker.network 保持一致。
+      - --providers.docker.network=shared_services_net
+    ports:
+      # 生产环境公网 HTTP/HTTPS 入口，通常固定使用 80/443。
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./config/dynamic:/etc/traefik/dynamic:ro
+      # 保存 Let's Encrypt 账号、证书和私钥，文件权限必须严格限制。
+      - ./data/letsencrypt:/letsencrypt
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=shared_services_net
+      # Dashboard 路由，默认使用 BasicAuth；Cloudflare Access/WAF 或防火墙可作为额外保护。
+      - traefik.http.routers.traefik-dashboard.rule=Host(`traefik.example.com`)
+      - traefik.http.routers.traefik-dashboard.entrypoints=websecure
+      - traefik.http.routers.traefik-dashboard.service=api@internal
+      - traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt
+      - traefik.http.routers.traefik-dashboard.middlewares=traefik-dashboard-auth,default-security-headers@file
+      - traefik.http.middlewares.traefik-dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH:?set TRAEFIK_DASHBOARD_AUTH in .env}
+    healthcheck:
+      test:
+        - CMD
+        - traefik
+        - healthcheck
+        - --ping
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - app_proxy
+      - socket_proxy
