@@ -22,8 +22,23 @@ cp .env.example .env
 2. 编辑 `.env`，至少修改：
 
 - `CLOUDFLARE_DNS_API_TOKEN`
+- `TRAEFIK_DASHBOARD_AUTH`
 
 Traefik 服务通过 `env_file: .env` 读取 Cloudflare Token，用于 DNS-01 签发证书。
+
+Dashboard 使用 Traefik BasicAuth。可以用本机 `htpasswd` 或临时 Docker 容器生成密码哈希：
+
+```bash
+htpasswd -nbB admin 'your-dashboard-password'
+# 或
+docker run --rm httpd:2.4-alpine htpasswd -nbB admin 'your-dashboard-password'
+```
+
+把输出写入 `.env`，并使用单引号保留哈希里的 `$` 字符：
+
+```env
+TRAEFIK_DASHBOARD_AUTH='admin:$2y$05$replace-with-real-bcrypt-hash'
+```
 
 邮箱和域名直接写在 `compose.yml` 里。示例值是 `admin@example.com`、`example.com`、`*.example.com`、`traefik.example.com`，部署前按实际域名修改。
 
@@ -52,6 +67,8 @@ chmod 600 data/letsencrypt/acme.json
 docker compose up -d
 ```
 
+Traefik 会等待 `docker-socket-proxy` 健康检查通过后再启动。这个健康检查通过 Docker API 的 `/_ping` 端点确认 socket proxy 已经可以响应。
+
 6. 检查：
 
 ```bash
@@ -60,6 +77,21 @@ docker compose logs -f traefik
 ```
 
 Traefik 容器会挂载宿主机的 `/etc/localtime`，日志时间跟随 Linux 服务器系统时区。
+
+## 访客真实 IP
+
+模板默认按“Cloudflare 在 Traefik 前面”的架构配置真实 IP：
+
+- `config/traefik.yml` 在 `web` 和 `websecure` 两个入口上配置了 `forwardedHeaders.trustedIPs`，只信任 Cloudflare 边缘节点传入的 `X-Forwarded-*` 请求头。
+- 访问日志使用 JSON 格式，并保留 `CF-Connecting-IP`、`X-Forwarded-For`、`X-Real-IP`、`CF-Ray` 等排查真实访客 IP 所需的请求头。
+- 日志中优先查看对应的 `request_*` 头字段，例如 `CF-Connecting-IP` 或 `X-Forwarded-For`；`CF-Connecting-IP` 是 Cloudflare 传给源站的单一访客 IP。
+
+如果源站没有放在 Cloudflare 后面，不要直接开启 `forwardedHeaders.insecure=true`。应把 `trustedIPs` 改成你自己的上游反向代理、负载均衡器或 CDN 的出口网段。
+
+Cloudflare IP 段可能变化，迁移或长期运行前建议按官方列表核对：
+
+- https://www.cloudflare.com/ips-v4/
+- https://www.cloudflare.com/ips-v6/
 
 ## 文件权限
 
@@ -99,13 +131,13 @@ docker compose logs -f traefik
 
 如果这个文件已经有真实证书内容，先备份再处理，不要直接覆盖。
 
-## Cloudflare 访问控制
+## Dashboard 访问控制
 
-Dashboard 没有启用 Traefik Basic Auth，访问控制应在 Cloudflare Access、Zero Trust、WAF 或防火墙中完成。
+Dashboard 已启用 Traefik BasicAuth，凭据来自 `.env` 中的 `TRAEFIK_DASHBOARD_AUTH`。
 
-Dashboard 域名的 DNS 记录必须启用 Cloudflare 代理，也就是橙色云朵；否则访问流量不会经过 Cloudflare 的访问限制。
+如果同时使用 Cloudflare Access、Zero Trust 或 WAF，Dashboard 域名的 DNS 记录必须启用 Cloudflare 代理，也就是橙色云朵；否则访问流量不会经过 Cloudflare 的访问限制。
 
-建议在 Cloudflare 侧配置 Access、Zero Trust 或 WAF 规则；源站直连流量建议使用 UFW、安全组或云防火墙限制。
+BasicAuth 是 Traefik 侧的认证，Cloudflare Access/WAF 和源站防火墙仍建议作为额外保护。源站直连流量建议使用 UFW、安全组或云防火墙限制。
 
 ## 业务服务接入示例
 
@@ -128,8 +160,9 @@ labels:
 
 - 不要复用其他服务器的 `data/letsencrypt/acme.json`。
 - 不要把 `.env`、`acme.json`、Cloudflare Token 提交到仓库。
+- `.env` 里的 `TRAEFIK_DASHBOARD_AUTH` 是 Dashboard 凭据哈希，也不要提交。
 - Cloudflare Token 建议只授予目标 Zone 的 DNS edit 权限。
-- Dashboard 必须使用独立域名，并在 Cloudflare 侧配置访问限制。
+- Dashboard 必须使用独立域名，并建议在 Cloudflare 侧配置访问限制。
 - `compose.yml` 里的 `admin@example.com`、`example.com`、`*.example.com`、`traefik.example.com` 是示例值，部署前要替换成真实值。
 - Traefik 和 Docker socket proxy 镜像版本已经在 `compose.yml` 中固定，升级前先在测试机验证。
 - HSTS preload 需要确认所有子域名都长期支持 HTTPS；否则把 `stsPreload` 改为 `false`。

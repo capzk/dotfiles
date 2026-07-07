@@ -32,6 +32,13 @@ services:
     volumes:
       # 只有 docker-socket-proxy 直接接触宿主机 Docker socket。
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --quiet --tries=1 --spider http://127.0.0.1:2375/_ping || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
       - socket_proxy
 
@@ -39,7 +46,8 @@ services:
     image: traefik:v3.7
     restart: unless-stopped
     depends_on:
-      - docker-socket-proxy
+      docker-socket-proxy:
+        condition: service_healthy
     env_file:
       # 提供 CLOUDFLARE_DNS_API_TOKEN，用于 DNS-01 签发证书。
       - .env
@@ -65,12 +73,13 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=shared_services_net
-      # Dashboard 路由，访问控制交给 Cloudflare Access/WAF 或防火墙。
+      # Dashboard 路由，默认使用 BasicAuth；Cloudflare Access/WAF 或防火墙可作为额外保护。
       - traefik.http.routers.traefik-dashboard.rule=Host(`traefik.example.com`)
       - traefik.http.routers.traefik-dashboard.entrypoints=websecure
       - traefik.http.routers.traefik-dashboard.service=api@internal
       - traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt
-      - traefik.http.routers.traefik-dashboard.middlewares=default-security-headers@file
+      - traefik.http.routers.traefik-dashboard.middlewares=traefik-dashboard-auth,default-security-headers@file
+      - traefik.http.middlewares.traefik-dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH:?set TRAEFIK_DASHBOARD_AUTH in .env}
     healthcheck:
       test:
         - CMD
