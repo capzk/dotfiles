@@ -1,6 +1,13 @@
+# 当前服务器私密环境变量。
 .env
+
+# Let's Encrypt 账号、证书和私钥。
 data/letsencrypt/acme.json
 data/letsencrypt/*.json
+
+# 本地运行日志。
 *.log
+
+# 示例服务的本地配置和数据目录。
 examples/*/.env
 examples/*/data/

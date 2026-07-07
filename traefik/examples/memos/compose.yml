@@ -1,9 +1,10 @@
 name: memos
 
 networks:
+  # 复用 Traefik 主网关的公共业务网络。
   app_proxy:
     external: true
-    name: shared_services_net
+    name: ${APP_PROXY_NETWORK:?请在 .env 设置 APP_PROXY_NETWORK}
 
 services:
   memos:
@@ -22,7 +23,7 @@ services:
       - no-new-privileges:true
     labels:
       - traefik.enable=true
-      - traefik.docker.network=shared_services_net
+      - traefik.docker.network=${APP_PROXY_NETWORK:?请在 .env 设置 APP_PROXY_NETWORK}
       - traefik.http.routers.memos.rule=Host(`memos.example.com`)
       - traefik.http.routers.memos.entrypoints=websecure
       - traefik.http.routers.memos.tls.certresolver=letsencrypt

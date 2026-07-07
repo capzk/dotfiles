@@ -21,7 +21,7 @@ accessLog:
 
 api:
   dashboard: true
-  # 禁止通过不安全端口直接暴露 Dashboard。
+  # 禁止通过不安全端口直接暴露控制台。
   insecure: false
 
 ping: {}
@@ -31,7 +31,7 @@ entryPoints:
     address: ":80"
     forwardedHeaders:
       # 只信任 Cloudflare 边缘节点转发的 X-Forwarded-* 头，避免源站直连伪造访客 IP。
-      # Cloudflare IP ranges last checked: 2026-07-07.
+      # Cloudflare 官方 IP 段最后核对日期：2026-07-07。
       trustedIPs: &cloudflareTrustedIPs
         - 103.21.244.0/22
         - 103.22.200.0/22
@@ -67,7 +67,7 @@ entryPoints:
     forwardedHeaders:
       trustedIPs: *cloudflareTrustedIPs
     http:
-      # websecure 入口的默认 TLS 配置。
+      # websecure 入口默认启用 Let's Encrypt 证书和文件配置提供者中的 TLS 策略。
       tls:
         certResolver: letsencrypt
         options: modern@file
@@ -80,7 +80,7 @@ providers:
     exposedByDefault: false
     watch: true
   file:
-    # 动态中间件和 TLS 选项目录。
+    # 动态中间件和 TLS 策略目录。
     directory: /etc/traefik/dynamic
     watch: true
 
