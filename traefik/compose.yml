@@ -52,10 +52,8 @@ services:
       # 提供 Cloudflare 令牌、域名、邮箱和控制台凭据等部署参数。
       - .env
     command:
-      # 从 .env 读取证书邮箱和主域名，避免模板示例值被误用于生产。
+      # 从 .env 读取证书邮箱，避免模板示例值被误用于生产。
       - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?请在 .env 设置 ACME_EMAIL}
-      - --entrypoints.websecure.http.tls.domains[0].main=${DOMAIN:?请在 .env 设置 DOMAIN}
-      - --entrypoints.websecure.http.tls.domains[0].sans=*.${DOMAIN:?请在 .env 设置 DOMAIN}
       # 必须和 app_proxy 外部网络名、业务服务 traefik.docker.network 保持一致。
       - --providers.docker.network=${APP_PROXY_NETWORK:?请在 .env 设置 APP_PROXY_NETWORK}
     ports:
@@ -78,6 +76,9 @@ services:
       - traefik.http.routers.traefik-dashboard.entrypoints=websecure
       - traefik.http.routers.traefik-dashboard.service=api@internal
       - traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt
+      # 显式在一个固定存在的路由上声明证书域名，确保启动后申请根域名和通配符证书。
+      - traefik.http.routers.traefik-dashboard.tls.domains[0].main=${DOMAIN:?请在 .env 设置 DOMAIN}
+      - traefik.http.routers.traefik-dashboard.tls.domains[0].sans=*.${DOMAIN:?请在 .env 设置 DOMAIN}
       - traefik.http.routers.traefik-dashboard.middlewares=traefik-dashboard-auth,default-security-headers@file
       - traefik.http.middlewares.traefik-dashboard-auth.basicauth.users=${TRAEFIK_DASHBOARD_AUTH:?请在 .env 设置 TRAEFIK_DASHBOARD_AUTH}
     healthcheck:

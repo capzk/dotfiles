@@ -39,7 +39,7 @@ cp .env.example .env
 
 2. 只编辑 `.env`，不要修改主配置文件。至少修改：
 
-- `CLOUDFLARE_DNS_API_TOKEN`
+- `CLOUDFLARE_DNS_API_TOKEN`：Cloudflare API 令牌，至少需要目标 Zone 的 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
 - `APP_PROXY_NETWORK`
 - `ACME_EMAIL`
 - `DOMAIN`
@@ -47,6 +47,7 @@ cp .env.example .env
 - `TRAEFIK_DASHBOARD_AUTH`
 
 Traefik 服务通过 `.env` 读取 Cloudflare 令牌、公共业务网络名、ACME 邮箱、证书主域名、控制台域名和控制台凭据；`compose.yml` 使用必填变量校验，漏填时会在启动前直接报错。
+模板会在固定存在的控制台路由上显式声明 `DOMAIN` 和 `*.DOMAIN`，启动后由 Traefik 通过 DNS-01 申请根域名和通配符证书。
 
 控制台使用 Traefik 基础认证（BasicAuth）。可以用本机 `htpasswd` 或临时 Docker 容器生成密码哈希：
 
@@ -134,6 +135,15 @@ chmod 600 .env data/letsencrypt/acme.json
 
 ## 常见问题
 
+如果只签发了控制台单域名证书，没有签发通配符证书，优先检查：
+
+- `.env` 是否已经设置 `DOMAIN`，例如 `DOMAIN=example.com`，不要带 `https://` 或通配符前缀。
+- Traefik 是否已经按新模板重建：`docker compose up -d --force-recreate traefik`。
+- `docker compose config` 展开后，控制台路由是否包含 `tls.domains[0].main` 和 `tls.domains[0].sans`。
+- Traefik 日志里是否有 Cloudflare API 权限、DNS TXT 传播、Let's Encrypt 限流或 `acme.json` JSON 损坏相关错误。
+
+Traefik 官方 ACME 文档说明，证书解析器会优先根据路由上的 `tls.domains` 申请证书；如果没有显式设置，则会从 `Host()` 规则推导域名，这种情况下通常只会申请当前路由的单域名证书。
+
 如果日志出现：
 
 ```text
@@ -202,7 +212,7 @@ labels:
 - 不要复用其他服务器的 `data/letsencrypt/acme.json`。
 - 不要把 `.env`、`acme.json`、Cloudflare 令牌提交到仓库。
 - `.env` 里的 `TRAEFIK_DASHBOARD_AUTH` 是控制台凭据哈希，也不要提交。
-- Cloudflare 令牌建议只授予目标 Zone 的 DNS 编辑权限。
+- Cloudflare 令牌建议只作用于目标 Zone，并授予 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
 - 控制台必须使用独立域名，并建议在 Cloudflare 侧配置访问限制。
 - `.env` 里的 `shared_services_net`、`admin@example.com`、`example.com`、`traefik.example.com` 是示例值，部署前要按真实环境确认或替换。
 - Traefik 和 Docker socket proxy 镜像版本已经在 `compose.yml` 中固定，升级前先在测试机验证。
