@@ -85,13 +85,15 @@ docker run --rm httpd:2.4-alpine htpasswd -nbB admin 'your-dashboard-password'
 TRAEFIK_DASHBOARD_AUTH='admin:$2y$05$replace-with-real-bcrypt-hash'
 ```
 
-3. 按 `.env` 里的 `APP_PROXY_NETWORK` 创建外部网络。默认示例值是：
+3. 按 `.env` 里的 `APP_PROXY_NETWORK` 创建外部共享网络。默认示例值是：
 
 ```bash
-docker network create shared_services_net
+docker network create --driver bridge shared_services_net
 ```
 
 部署时请按 `.env` 里的实际值创建同名公共 Docker 网络，Traefik 和需要被反代的业务服务都加入这个网络。
+
+不要用 `--internal` 创建 `APP_PROXY_NETWORK`，也不要禁用 IPv4、网关或 bridge masquerade。它应该是普通外部 bridge 网络，和社区常见 Traefik 示例里的 `external: true` 网络一致。
 
 如果改成其他名字，只需要统一修改各项目 `.env` 里的 `APP_PROXY_NETWORK`；Traefik 主模板和业务服务模板会把外部网络名、Docker provider 默认网络、`traefik.docker.network` label 同步到这个值。不要为了改网络名去改 `compose.yml`。
 
@@ -316,6 +318,7 @@ http:
 - Cloudflare 令牌建议只作用于目标 Zone，并授予 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
 - 控制台必须使用独立域名，并建议在 Cloudflare 侧配置访问限制。
 - `.env` 里的 `shared_services_net`、`admin@example.com`、`example.com`、`traefik.example.com` 是示例值，部署前要按真实环境确认或替换。
+- `APP_PROXY_NETWORK` 应该是普通 bridge 网络，不要创建为 Docker internal 网络。
 - Traefik 镜像版本已经在 `compose.yml` 中固定，升级前先在测试机验证。
 - `default-security-headers@file` 启用了 HSTS preload，需要确认所有子域名都长期支持 HTTPS；公开站点或不确定的服务可使用 `public-security-headers@file`。
 
@@ -324,6 +327,8 @@ http:
 - https://doc.traefik.io/traefik/getting-started/docker/
 - https://doc.traefik.io/traefik/reference/install-configuration/providers/docker/
 - https://doc.traefik.io/traefik/reference/install-configuration/providers/others/file/
+- https://docs.docker.com/reference/compose-file/networks/
+- https://docs.docker.com/engine/network/drivers/bridge/
 - https://doc.traefik.io/traefik/reference/install-configuration/entrypoints/
 - https://doc.traefik.io/traefik/reference/install-configuration/api-dashboard/
 - https://doc.traefik.io/traefik/reference/install-configuration/tls/certificate-resolvers/acme/
