@@ -1,6 +1,6 @@
 # Traefik 生产部署模板
 
-这是一个可复制到不同服务器的 Traefik 边缘网关模板。默认使用 Docker 配置提供者、文件配置提供者、Cloudflare DNS-01 验证、Let's Encrypt 泛域名证书，以及 Docker socket proxy。
+这是一个可复制到不同服务器的 Traefik 边缘网关模板。默认使用 Docker 配置提供者、文件配置提供者、Cloudflare DNS-01 验证，以及 Let's Encrypt 泛域名证书。
 
 模板同时覆盖两种常见部署架构：
 
@@ -9,7 +9,7 @@
 
 ## 目录内容
 
-- `compose.yml`：Traefik 和 Docker socket proxy 服务定义
+- `compose.yml`：Traefik 服务定义
 - `config/traefik.yml`：Traefik 静态配置
 - `config/dynamic/routes.yml`：通用中间件和 TLS 配置，也可在同目录增加远程后端路由文件
 - `.env.example`：环境变量模板
@@ -112,7 +112,7 @@ chmod 600 data/letsencrypt/acme.json
 docker compose up -d
 ```
 
-Traefik 会等待 `docker-socket-proxy` 健康检查通过后再启动。这个健康检查通过 Docker API 的 `/_ping` 端点确认 socket proxy 已经可以响应。
+Traefik 通过只读挂载的 `/var/run/docker.sock` 读取本机容器 labels，用于 Docker Provider 自动发现。这个 socket 不会发布成 TCP 端口；不要额外暴露 Docker API 的 `2375` 或 `2376` 端口。
 
 6. 检查：
 
@@ -316,7 +316,7 @@ http:
 - Cloudflare 令牌建议只作用于目标 Zone，并授予 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
 - 控制台必须使用独立域名，并建议在 Cloudflare 侧配置访问限制。
 - `.env` 里的 `shared_services_net`、`admin@example.com`、`example.com`、`traefik.example.com` 是示例值，部署前要按真实环境确认或替换。
-- Traefik 和 Docker socket proxy 镜像版本已经在 `compose.yml` 中固定，升级前先在测试机验证。
+- Traefik 镜像版本已经在 `compose.yml` 中固定，升级前先在测试机验证。
 - `default-security-headers@file` 启用了 HSTS preload，需要确认所有子域名都长期支持 HTTPS；公开站点或不确定的服务可使用 `public-security-headers@file`。
 
 ## 官方参考

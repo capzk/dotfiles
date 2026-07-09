@@ -74,8 +74,7 @@ entryPoints:
 
 providers:
   docker:
-    # 通过 docker-socket-proxy 访问 Docker API，不直接挂载 docker.sock。
-    endpoint: "tcp://docker-socket-proxy:2375"
+    # 通过只读挂载的 /var/run/docker.sock 读取本机容器 labels。
     # 只有显式设置 traefik.enable=true 的容器才会被发布。
     exposedByDefault: false
     watch: true

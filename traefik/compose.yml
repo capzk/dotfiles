@@ -7,47 +7,10 @@ networks:
     external: true
     name: ${APP_PROXY_NETWORK:?请在 .env 设置 APP_PROXY_NETWORK}
 
-  # Traefik 与 docker-socket-proxy 通信用的内部网络。
-  # 业务容器不要加入这个网络。
-  socket_proxy:
-    internal: true
-
 services:
-  # 限制 Traefik 对 Docker API 的访问，避免 Traefik 直接挂载 docker.sock。
-  docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3.0
-    restart: unless-stopped
-    privileged: true
-    environment:
-      # Traefik 的 Docker 配置提供者需要读取这些 Docker API 端点。
-      CONTAINERS: 1
-      EVENTS: 1
-      INFO: 1
-      NETWORKS: 1
-      PING: 1
-      SERVICES: 1
-      TASKS: 1
-      VERSION: 1
-      POST: 0
-    volumes:
-      # 只有 docker-socket-proxy 直接接触宿主机 Docker socket。
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - wget --quiet --tries=1 --spider http://127.0.0.1:2375/_ping || exit 1
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    networks:
-      - socket_proxy
-
   traefik:
     image: traefik:v3.7
     restart: unless-stopped
-    depends_on:
-      docker-socket-proxy:
-        condition: service_healthy
     env_file:
       # 提供 Cloudflare 令牌、域名、邮箱和控制台凭据等部署参数。
       - .env
@@ -64,6 +27,8 @@ services:
       - "443:443"
     volumes:
       - /etc/localtime:/etc/localtime:ro
+      # 允许 Docker Provider 读取本机容器 labels；只读挂载，不发布 Docker API 端口。
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./config/dynamic:/etc/traefik/dynamic:ro
       # 保存 Let's Encrypt 账号、证书和私钥，文件权限必须严格限制。
@@ -94,4 +59,3 @@ services:
       retries: 3
     networks:
       - app_proxy
-      - socket_proxy
