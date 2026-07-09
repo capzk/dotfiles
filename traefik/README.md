@@ -12,6 +12,7 @@
 - `compose.yml`：Traefik 服务定义
 - `config/traefik.yml`：Traefik 静态配置
 - `config/dynamic/routes.yml`：通用中间件和 TLS 配置，也可在同目录增加远程后端路由文件
+- `config/dynamic/remote-service.yml.example`：远程服务器代理动态配置模板，不会被默认加载
 - `.env.example`：环境变量模板
 - `.env`：当前服务器配置，不要提交到代码仓库
 - `data/letsencrypt/acme.json`：Let's Encrypt 证书存储文件，不要复制给其他服务器
@@ -21,6 +22,15 @@
 ## 配置原则
 
 正常部署 Traefik 主网关时，只需要复制并编辑 `.env`。`compose.yml`、`config/traefik.yml`、`config/dynamic/routes.yml` 已经模板化，普通用户不要修改。
+
+配置来源统一规则：
+
+- `.env` 是唯一的部署变量入口，只保存不同服务器会变化的值。
+- `compose.yml` 是唯一消费 `.env` 的地方，负责把变量展开成 Traefik 命令行参数、labels 和必要的容器环境变量。
+- Traefik 容器运行时只注入 `CF_DNS_API_TOKEN`，用于 lego Cloudflare DNS-01；其他 `.env` 变量不会作为容器环境变量传入。
+- `config/traefik.yml` 只放固定静态配置，例如 entryPoints、providers、日志、dashboard 和 ping，不放任何依赖 `.env` 的值。
+- `config/dynamic/` 只放动态配置，例如中间件、TLS options 和远程后端路由。
+- 同一个 Traefik 静态功能不要拆到多个配置来源里；例如 ACME resolver 已全部放在 `compose.yml` 的 command 中，避免 `caServer`、`storage`、`dnsChallenge` 分散后生效顺序不清晰。
 
 需要修改的文件：
 
@@ -36,6 +46,22 @@
 
 只有在明确要改变模板行为时，才修改主配置文件。例如更换入口端口、调整 TLS 策略、变更 Cloudflare 真实 IP 信任范围、升级镜像版本或新增全局中间件。
 
+## 环境变量
+
+`.env` 中只保留这些变量：
+
+```env
+CF_DNS_API_TOKEN=replace-with-cloudflare-dns-token
+APP_PROXY_NETWORK=shared_services_net
+ACME_EMAIL=admin@example.com
+ACME_CA_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory
+DOMAIN=example.com
+TRAEFIK_DASHBOARD_HOST=traefik.example.com
+TRAEFIK_DASHBOARD_AUTH='admin:replace-with-htpasswd-hash'
+```
+
+旧版模板曾使用 `CLOUDFLARE_DNS_API_TOKEN`。lego 官方把它列为 `CF_DNS_API_TOKEN` 的 alias；本模板统一使用官方主名称 `CF_DNS_API_TOKEN`。升级旧 `.env` 时请把变量名改成 `CF_DNS_API_TOKEN`。
+
 ## 首次部署
 
 1. 复制环境变量模板：
@@ -46,7 +72,7 @@ cp .env.example .env
 
 2. 只编辑 `.env`，不要修改主配置文件。至少修改：
 
-- `CLOUDFLARE_DNS_API_TOKEN`：Cloudflare API 令牌，至少需要目标 Zone 的 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
+- `CF_DNS_API_TOKEN`：Cloudflare API 令牌，至少需要目标 Zone 的 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
 - `APP_PROXY_NETWORK`
 - `ACME_EMAIL`
 - `ACME_CA_SERVER`
@@ -54,7 +80,7 @@ cp .env.example .env
 - `TRAEFIK_DASHBOARD_HOST`
 - `TRAEFIK_DASHBOARD_AUTH`
 
-Traefik 服务通过 `.env` 读取 Cloudflare 令牌、公共业务网络名、ACME 邮箱、证书主域名、控制台域名和控制台凭据；`compose.yml` 使用必填变量校验，漏填时会在启动前直接报错。
+Docker Compose 自动读取 `.env` 用于变量插值。Traefik 容器运行时只注入 `CF_DNS_API_TOKEN`，其他变量只用于生成命令行参数和 labels；`compose.yml` 使用必填变量校验，漏填时会在启动前直接报错。
 模板会在固定存在的控制台路由上显式声明 `DOMAIN` 和 `*.DOMAIN`，启动后由 Traefik 通过 DNS-01 申请根域名和通配符证书。
 
 `ACME_CA_SERVER` 默认使用 Let's Encrypt staging 接口：
@@ -88,12 +114,12 @@ TRAEFIK_DASHBOARD_AUTH='admin:$2y$05$replace-with-real-bcrypt-hash'
 3. 按 `.env` 里的 `APP_PROXY_NETWORK` 创建外部共享网络。默认示例值是：
 
 ```bash
-docker network create --driver bridge shared_services_net
+docker network create shared_services_net
 ```
 
 部署时请按 `.env` 里的实际值创建同名公共 Docker 网络，Traefik 和需要被反代的业务服务都加入这个网络。
 
-不要用 `--internal` 创建 `APP_PROXY_NETWORK`，也不要禁用 IPv4、网关或 bridge masquerade。它应该是普通外部 bridge 网络，和社区常见 Traefik 示例里的 `external: true` 网络一致。
+不要用 `--internal` 创建 `APP_PROXY_NETWORK`，也不要禁用 IPv4、网关或 bridge masquerade。`docker network create shared_services_net` 默认创建的就是普通 bridge 网络，和社区常见 Traefik 示例里的 `external: true` 网络一致。
 
 如果改成其他名字，只需要统一修改各项目 `.env` 里的 `APP_PROXY_NETWORK`；Traefik 主模板和业务服务模板会把外部网络名、Docker provider 默认网络、`traefik.docker.network` label 同步到这个值。不要为了改网络名去改 `compose.yml`。
 
@@ -206,6 +232,51 @@ docker compose logs -f traefik
 
 公开网站、需要被搜索引擎收录的页面，或需要被可信页面 iframe 嵌入的服务，优先使用 `public-security-headers@file`。
 
+## 动态配置目录
+
+`config/traefik.yml` 已启用 File Provider：
+
+```yaml
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+```
+
+这表示 Traefik 会从 `config/dynamic/` 加载动态配置文件，并在文件变化后自动热加载。这个目录可以同时放多个动态配置文件，推荐按用途拆分：
+
+```text
+config/dynamic/
+  routes.yml
+  remote-outline.yml
+  remote-vaultwarden.yml
+  remote-blog.yml
+  remote-service.yml.example
+```
+
+推荐规则：
+
+- `routes.yml` 保留通用中间件和 TLS options。
+- 每个远程服务单独一个 `.yml` 文件，便于独立启停、审查和回滚。
+- 文件名可以自定义，但 router、service、middleware、serversTransport 名称不要重复。
+- `.yml` / `.yaml` / `.toml` 是正式动态配置文件，会被 Traefik 加载。
+- `.yml.example` 只是模板，不会作为正式配置加载。
+
+添加远程服务时，从模板复制一份：
+
+```bash
+cp config/dynamic/remote-service.yml.example config/dynamic/my-service.yml
+```
+
+然后修改：
+
+- `rule: Host(...)`：远程服务域名。
+- `service` / `router` 名称：建议改成服务唯一名称。
+- `servers.url`：远程服务器可访问地址，例如内网、VPC、WireGuard、Tailscale 或受限公网地址。
+- `healthCheck.path`：应用真实健康检查路径。
+
+如果远程服务只是临时停用，最简单的方式是把对应文件从 `.yml` 改回 `.yml.disabled` 或移出 `config/dynamic/`。
+
 ## 业务服务接入方式
 
 Traefik 主模板同时启用了 Docker Provider 和 File Provider。选择哪种方式取决于业务应用和 Traefik 是否在同一台 Docker 主机上。
@@ -255,7 +326,7 @@ labels:
 - Server A 的 Traefik 继续暴露公网 `80/443`，负责 TLS、路由、中间件和访问日志。
 - Server B 的业务容器把服务端口发布到宿主机内网地址，或使用 `network_mode: host`。
 - Server B 防火墙只允许 Server A 的内网 IP 访问业务端口。
-- Server A 在 `config/dynamic/` 下为远程应用新增一个动态配置文件，手动写入 `http://Server-B-内网IP:端口`。
+- Server A 在 `config/dynamic/` 下为远程应用新增一个动态配置文件，手动写入 `http://Server-B-内网IP:端口`。可以从 `config/dynamic/remote-service.yml.example` 复制生成。
 
 Server B 应用示例：
 
@@ -298,7 +369,7 @@ http:
           timeout: 5s
 ```
 
-完整跨服务器示例见 [examples/remote-webapp](examples/remote-webapp)。复制其中的 `dynamic/remote-app.yml` 到主目录 `config/dynamic/` 后，按真实域名、内网 IP、端口和健康检查路径修改即可。
+完整跨服务器示例见 [examples/remote-webapp](examples/remote-webapp)。主配置目录也提供了 `config/dynamic/remote-service.yml.example`，复制为 `.yml` 后按真实域名、远程 IP、端口和健康检查路径修改即可。多个远程服务可以同时存在，建议一个服务一个动态配置文件。
 
 远程后端使用 HTTPS 时，可以在动态配置中增加 `serversTransports`，为内网 CA、自签证书或后端 SNI 设置专用传输配置。优先配置可信 CA，不要把跳过证书校验作为默认方案。
 
@@ -315,7 +386,7 @@ http:
 - 不要复用其他服务器的 `data/letsencrypt/acme.json`。
 - 不要把 `.env`、`acme.json`、Cloudflare 令牌提交到仓库。
 - `.env` 里的 `TRAEFIK_DASHBOARD_AUTH` 是控制台凭据哈希，也不要提交。
-- Cloudflare 令牌建议只作用于目标 Zone，并授予 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
+- Cloudflare 令牌使用 lego 官方变量名 `CF_DNS_API_TOKEN`，建议只作用于目标 Zone，并授予 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
 - 控制台必须使用独立域名，并建议在 Cloudflare 侧配置访问限制。
 - `.env` 里的 `shared_services_net`、`admin@example.com`、`example.com`、`traefik.example.com` 是示例值，部署前要按真实环境确认或替换。
 - `APP_PROXY_NETWORK` 应该是普通 bridge 网络，不要创建为 Docker internal 网络。

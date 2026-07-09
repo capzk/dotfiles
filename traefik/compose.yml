@@ -11,13 +11,13 @@ services:
   traefik:
     image: traefik:v3.7
     restart: unless-stopped
-    env_file:
-      # 提供 Cloudflare 令牌、域名、邮箱和控制台凭据等部署参数。
-      - .env
+    environment:
+      # lego Cloudflare provider 官方变量名；只把运行时必需的 DNS token 注入容器。
+      CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN:?请在 .env 设置 CF_DNS_API_TOKEN}
     command:
       # ACME resolver 统一放在 command 中，避免与 traefik.yml 拆分后 caServer 不生效。
       - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?请在 .env 设置 ACME_EMAIL}
-      - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
+      - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:?请在 .env 设置 ACME_CA_SERVER}
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
       - --certificatesresolvers.letsencrypt.acme.dnschallenge.propagation.delaybeforechecks=30
