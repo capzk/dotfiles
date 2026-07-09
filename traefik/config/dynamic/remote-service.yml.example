@@ -13,38 +13,38 @@
 # - Server A 可以通过公网 IP、内网 IP、VPC、WireGuard 或 Tailscale 访问 Server B 的服务端口。
 # - Server B 防火墙或安全组只允许 Server A 访问该端口。
 
-http:
-  routers:
-    remote-service-router:
-      rule: Host(`app.example.com`)
-      entryPoints:
-        - websecure
-      middlewares:
-        - default-security-headers@file
-        - compress@file
-      service: remote-service
-      tls:
-        certResolver: letsencrypt
-
-  services:
-    remote-service:
-      loadBalancer:
-        passHostHeader: true
-        servers:
-          # 推荐使用内网/VPC/VPN 地址；公网地址也可以，但必须限制只允许 Traefik 主机访问。
-          - url: http://10.0.2.20:8080
-        healthCheck:
-          # 真实应用建议替换为专用健康检查路径，例如 /health。
-          path: /
-          interval: 30s
-          timeout: 5s
-
-  # 如果远程后端使用 HTTPS 且需要指定 SNI 或内网 CA，取消下面注释，并在 loadBalancer 下加入：
-  #
-  #   serversTransport: remote-service-transport
-  #
-  # serversTransports:
-  #   remote-service-transport:
-  #     serverName: app.internal.example.com
-  #     rootCAs:
-  #       - /etc/traefik/certs/internal-ca.pem
+# http:
+#   routers:
+#     remote-service-router:
+#       rule: Host(`app.example.com`)
+#       entryPoints:
+#         - websecure
+#       middlewares:
+#         - default-security-headers@file
+#         - compress@file
+#       service: remote-service
+#       tls:
+#         certResolver: letsencrypt
+#
+#   services:
+#     remote-service:
+#       loadBalancer:
+#         passHostHeader: true
+#         servers:
+#           # 推荐使用内网/VPC/VPN 地址；公网地址也可以，但必须限制只允许 Traefik 主机访问。
+#           - url: http://10.0.2.20:8080
+#         healthCheck:
+#           # 真实应用建议替换为专用健康检查路径，例如 /health。
+#           path: /
+#           interval: 30s
+#           timeout: 5s
+#
+#   如果远程后端使用 HTTPS 且需要指定 SNI 或内网 CA，取消下面注释，并在 loadBalancer 下加入：
+#
+#     serversTransport: remote-service-transport
+#
+#   serversTransports:
+#     remote-service-transport:
+#       serverName: app.internal.example.com
+#       rootCAs:
+#         - /etc/traefik/certs/internal-ca.pem

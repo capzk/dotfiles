@@ -4,7 +4,7 @@
 
 ## 配置原则
 
-接入业务服务时，不要修改 Traefik 主目录的 `compose.yml`、`config/traefik.yml` 或 `config/dynamic/routes.yml`。
+接入业务服务时，不要修改 Traefik 主目录的 `compose.yml` 或 `config/dynamic/routes.yml`。
 
 这个示例需要修改的是当前目录的 `compose.yml`，以及当前服务自己的 `.env`。常见修改项是服务域名、实例 URL、数据目录、容器端口、镜像版本和要使用的 Traefik 中间件。
 

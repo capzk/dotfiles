@@ -21,26 +21,28 @@
 
 ## 配置原则
 
-正常部署 Traefik 主网关时，只需要复制并编辑 `.env`。`compose.yml`、`config/traefik.yml`、`config/dynamic/routes.yml` 已经模板化，普通用户不要修改。
+正常部署 Traefik 主网关时，需要编辑 `.env` 和 `config/traefik.yml` 中明确标注的部署项。`compose.yml` 和 `config/dynamic/routes.yml` 已经模板化，普通用户不要修改。
 
 配置来源统一规则：
 
 - `.env` 是唯一的部署变量入口，只保存不同服务器会变化的值。
-- `compose.yml` 是唯一消费 `.env` 的地方，负责把变量展开成 Traefik 命令行参数、labels 和必要的容器环境变量。
-- Traefik 容器运行时只注入 `CF_DNS_API_TOKEN`，用于 lego Cloudflare DNS-01；其他 `.env` 变量不会作为容器环境变量传入。
-- `config/traefik.yml` 只放固定静态配置，例如 entryPoints、providers、日志、dashboard 和 ping，不放任何依赖 `.env` 的值。
+- Traefik install/static configuration 的 file、CLI args、environment variables 三种来源不要混用；本模板统一使用 `config/traefik.yml` 作为 Traefik 静态配置来源。
+- `compose.yml` 负责容器、端口、网络、挂载、dashboard labels，以及把 `CF_DNS_API_TOKEN` 注入 Traefik 容器。
+- Traefik 容器运行时只注入 `CF_DNS_API_TOKEN`，用于 lego Cloudflare DNS-01。
+- `config/traefik.yml` 放固定静态配置，例如 entryPoints、providers、ACME resolver、日志、dashboard 和 ping。
 - `config/dynamic/` 只放动态配置，例如中间件、TLS options 和远程后端路由。
-- 同一个 Traefik 静态功能不要拆到多个配置来源里；例如 ACME resolver 已全部放在 `compose.yml` 的 command 中，避免 `caServer`、`storage`、`dnsChallenge` 分散后生效顺序不清晰。
+- 同一个 Traefik 静态功能不要拆到多个配置来源里；不要一部分写 `traefik.yml`、一部分写 command。
 
 需要修改的文件：
 
-- `.env`：当前服务器的自定义配置，包括 Cloudflare 令牌、公共 Docker 网络名、主域名、ACME 邮箱、控制台域名和控制台登录凭据。
+- `.env`：当前服务器的 Compose 变量，包括 Cloudflare 令牌、公共 Docker 网络名、主域名、控制台域名和控制台登录凭据。
+- `config/traefik.yml`：当前服务器的 Traefik 静态配置，首次部署至少确认 ACME 邮箱、ACME CA、Docker provider 默认网络名。
 - 业务服务自己的 `compose.yml` 或 `.env`：添加业务服务时，修改业务服务域名、容器端口、镜像、数据卷和要使用的中间件。
 
 不要修改的文件：
 
 - `compose.yml`：Traefik 主服务模板，变量已经从 `.env` 读取。
-- `config/traefik.yml`：Traefik 静态配置，包含入口、配置提供者、ACME、真实 IP 信任边界等基础行为。
+- `config/traefik.yml`：Traefik 静态配置模板；除部署项外不要随意修改。
 - `config/dynamic/routes.yml`：通用中间件和 TLS 策略。
 - `data/letsencrypt/acme.json`：证书存储文件，除非按故障修复步骤处理空文件或损坏 JSON。
 
@@ -53,8 +55,6 @@
 ```env
 CF_DNS_API_TOKEN=replace-with-cloudflare-dns-token
 APP_PROXY_NETWORK=shared_services_net
-ACME_EMAIL=admin@example.com
-ACME_CA_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory
 DOMAIN=example.com
 TRAEFIK_DASHBOARD_HOST=traefik.example.com
 TRAEFIK_DASHBOARD_AUTH='admin:replace-with-htpasswd-hash'
@@ -70,29 +70,33 @@ TRAEFIK_DASHBOARD_AUTH='admin:replace-with-htpasswd-hash'
 cp .env.example .env
 ```
 
-2. 只编辑 `.env`，不要修改主配置文件。至少修改：
+2. 编辑 `.env`。至少修改：
 
 - `CF_DNS_API_TOKEN`：Cloudflare API 令牌，至少需要目标 Zone 的 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
 - `APP_PROXY_NETWORK`
-- `ACME_EMAIL`
-- `ACME_CA_SERVER`
 - `DOMAIN`
 - `TRAEFIK_DASHBOARD_HOST`
 - `TRAEFIK_DASHBOARD_AUTH`
 
-Docker Compose 自动读取 `.env` 用于变量插值。Traefik 容器运行时只注入 `CF_DNS_API_TOKEN`，其他变量只用于生成命令行参数和 labels；`compose.yml` 使用必填变量校验，漏填时会在启动前直接报错。
+Docker Compose 自动读取 `.env` 用于变量插值。Traefik 容器运行时只注入 `CF_DNS_API_TOKEN`；其他变量只用于生成 labels 和网络名。`compose.yml` 使用必填变量校验，漏填时会在启动前直接报错。
 模板会在固定存在的控制台路由上显式声明 `DOMAIN` 和 `*.DOMAIN`，启动后由 Traefik 通过 DNS-01 申请根域名和通配符证书。
 
-`ACME_CA_SERVER` 默认使用 Let's Encrypt staging 接口：
+3. 编辑 `config/traefik.yml` 中的部署项。至少确认：
+
+- `providers.docker.network`：必须等于 `.env` 里的 `APP_PROXY_NETWORK`。
+- `certificatesResolvers.letsencrypt.acme.email`：Let's Encrypt 账号邮箱。
+- `certificatesResolvers.letsencrypt.acme.caServer`：调试阶段使用 staging，生产签发时改成正式接口。
+
+模板默认使用 Let's Encrypt staging 接口：
 
 ```env
-ACME_CA_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory
+caServer: https://acme-staging-v02.api.letsencrypt.org/directory
 ```
 
 staging 适合首次部署、调试 Cloudflare DNS-01、反复重建路由和验证配置，避免过早触发 Let's Encrypt 正式环境限流。staging 签发的证书不被浏览器信任；确认 Traefik 日志里 DNS-01 和证书申请流程都正常后，再改成正式接口：
 
 ```env
-ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory
+caServer: https://acme-v02.api.letsencrypt.org/directory
 ```
 
 从 staging 切到正式环境时，ACME 账号和证书环境不同。如果 `data/letsencrypt/acme.json` 里只有测试证书，可以停止 Traefik、备份后重置该文件为 `{}`，再启动 Traefik 重新申请正式证书。
@@ -111,7 +115,7 @@ docker run --rm httpd:2.4-alpine htpasswd -nbB admin 'your-dashboard-password'
 TRAEFIK_DASHBOARD_AUTH='admin:$2y$05$replace-with-real-bcrypt-hash'
 ```
 
-3. 按 `.env` 里的 `APP_PROXY_NETWORK` 创建外部共享网络。默认示例值是：
+4. 按 `.env` 里的 `APP_PROXY_NETWORK` 创建外部共享网络。默认示例值是：
 
 ```bash
 docker network create shared_services_net
@@ -123,18 +127,18 @@ docker network create shared_services_net
 
 如果改成其他名字，只需要统一修改各项目 `.env` 里的 `APP_PROXY_NETWORK`；Traefik 主模板和业务服务模板会把外部网络名、Docker provider 默认网络、`traefik.docker.network` label 同步到这个值。不要为了改网络名去改 `compose.yml`。
 
-4. 创建证书存储文件并限制权限：
+5. 创建证书存储文件并限制权限：
 
 ```bash
 mkdir -p data/letsencrypt
 printf '{}' > data/letsencrypt/acme.json
 chmod 755 config config/dynamic data data/letsencrypt
-chmod 644 compose.yml config/traefik.yml config/dynamic/routes.yml
+chmod 644 compose.yml config/traefik.yml config/dynamic/routes.yml config/dynamic/remote-service.yml.example
 chmod 600 .env
 chmod 600 data/letsencrypt/acme.json
 ```
 
-5. 启动：
+6. 启动：
 
 ```bash
 docker compose up -d
@@ -142,7 +146,7 @@ docker compose up -d
 
 Traefik 通过只读挂载的 `/var/run/docker.sock` 读取本机容器 labels，用于 Docker Provider 自动发现。这个 socket 不会发布成 TCP 端口；不要额外暴露 Docker API 的 `2375` 或 `2376` 端口。
 
-6. 检查：
+7. 检查：
 
 ```bash
 docker compose ps
@@ -155,7 +159,7 @@ Traefik 容器会挂载宿主机的 `/etc/localtime`，日志时间跟随 Linux 
 
 模板默认按“Cloudflare 在 Traefik 前面”的架构配置真实 IP：
 
-- `config/traefik.yml` 在 `web` 和 `websecure` 两个入口上配置了 `forwardedHeaders.trustedIPs`，只信任 Cloudflare 边缘节点传入的 `X-Forwarded-*` 请求头。
+- `compose.yml` 在 `web` 和 `websecure` 两个入口上配置了 `forwardedHeaders.trustedIPs`，只信任 Cloudflare 边缘节点传入的 `X-Forwarded-*` 请求头。
 - 访问日志使用 JSON 格式，并保留 `CF-Connecting-IP`、`X-Forwarded-For`、`X-Real-IP`、`CF-Ray` 等排查真实访客 IP 所需的请求头。
 - 日志中优先查看对应的 `request_*` 头字段，例如 `CF-Connecting-IP` 或 `X-Forwarded-For`；`CF-Connecting-IP` 是 Cloudflare 传给源站的单一访客 IP。
 
@@ -172,7 +176,7 @@ Linux 服务器建议使用以下权限：
 
 ```bash
 chmod 755 config config/dynamic data data/letsencrypt
-chmod 644 compose.yml config/traefik.yml config/dynamic/routes.yml .env.example README.md
+chmod 644 compose.yml config/traefik.yml config/dynamic/routes.yml config/dynamic/remote-service.yml.example .env.example README.md
 chmod 600 .env data/letsencrypt/acme.json
 ```
 
@@ -180,7 +184,7 @@ chmod 600 .env data/letsencrypt/acme.json
 
 - `.env` 包含 Cloudflare 令牌，只允许当前用户读写。
 - `data/letsencrypt/acme.json` 包含 Let's Encrypt 账号和证书私钥，只允许当前用户读写。
-- `compose.yml`、`config/traefik.yml`、`config/dynamic/routes.yml` 只需要普通只读权限。
+- `compose.yml`、`config/traefik.yml`、`config/dynamic/routes.yml`、`config/dynamic/remote-service.yml.example` 只需要普通只读权限。
 - `config/`、`data/` 目录需要可进入权限，否则 Docker bind mount 可能失败。
 
 ## 常见问题
@@ -188,7 +192,7 @@ chmod 600 .env data/letsencrypt/acme.json
 如果只签发了控制台单域名证书，没有签发通配符证书，优先检查：
 
 - `.env` 是否已经设置 `DOMAIN`，例如 `DOMAIN=example.com`，不要带 `https://` 或通配符前缀。
-- `.env` 的 `ACME_CA_SERVER` 当前是 staging 还是生产接口；staging 证书用于测试，不会被浏览器信任。
+- `config/traefik.yml` 的 `caServer` 当前是 staging 还是生产接口；staging 证书用于测试，不会被浏览器信任。
 - Traefik 是否已经按新模板重建：`docker compose up -d --force-recreate traefik`。
 - `docker compose config` 展开后，控制台路由是否包含 `tls.domains[0].main` 和 `tls.domains[0].sans`。
 - Traefik 日志里是否有 Cloudflare API 权限、DNS TXT 传播、Let's Encrypt 限流或 `acme.json` JSON 损坏相关错误。

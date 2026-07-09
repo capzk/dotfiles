@@ -75,10 +75,28 @@ entryPoints:
 providers:
   docker:
     # 通过只读挂载的 /var/run/docker.sock 读取本机容器 labels。
+    # 必须和 APP_PROXY_NETWORK、业务服务 traefik.docker.network 保持一致。
+    network: shared_services_net
     # 只有显式设置 traefik.enable=true 的容器才会被发布。
     exposedByDefault: false
     watch: true
   file:
-    # 动态中间件和 TLS 策略目录。
+    # 动态中间件、TLS 策略和远程后端路由目录。
     directory: /etc/traefik/dynamic
     watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      # 首次调试建议使用 Let's Encrypt staging，确认无误后再切换到生产 CA。
+      email: admin@example.com
+      # Let's Encrypt staging：调试用，证书不被浏览器信任，但限流更宽松。
+      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+      # Let's Encrypt production：正式证书，确认配置无误后再切换。
+      # caServer: https://acme-v02.api.letsencrypt.org/directory
+      storage: /letsencrypt/acme.json
+      dnsChallenge:
+        # 需要 Traefik 容器环境中存在 CF_DNS_API_TOKEN。
+        provider: cloudflare
+        propagation:
+          delayBeforeChecks: 30s
