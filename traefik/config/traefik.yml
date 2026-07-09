@@ -87,6 +87,8 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
+      # email 和 caServer 由 compose.yml 的命令行参数从 .env 注入。
+      # 模板默认使用 Let's Encrypt staging；生产签发前请在 .env 切换 ACME_CA_SERVER。
       # 保存 ACME 账号信息和已签发证书。
       storage: /letsencrypt/acme.json
       dnsChallenge:

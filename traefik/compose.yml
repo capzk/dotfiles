@@ -54,6 +54,8 @@ services:
     command:
       # 从 .env 读取证书邮箱，避免模板示例值被误用于生产。
       - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?请在 .env 设置 ACME_EMAIL}
+      # 默认使用 Let's Encrypt staging，调试通过后在 .env 改为生产 CA，避免反复部署触发正式环境限流。
+      - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
       # 必须和 app_proxy 外部网络名、业务服务 traefik.docker.network 保持一致。
       - --providers.docker.network=${APP_PROXY_NETWORK:?请在 .env 设置 APP_PROXY_NETWORK}
     ports:

@@ -2,14 +2,21 @@
 
 这是一个可复制到不同服务器的 Traefik 边缘网关模板。默认使用 Docker 配置提供者、文件配置提供者、Cloudflare DNS-01 验证、Let's Encrypt 泛域名证书，以及 Docker socket proxy。
 
+模板同时覆盖两种常见部署架构：
+
+- **同机应用自动发现**：Traefik 和业务容器运行在同一台服务器上，业务容器加入共享 Docker 网络，并通过 Docker labels 自动生成路由。
+- **跨服务器远程后端**：Traefik 运行在 Server A，业务应用运行在 Server B；Traefik 继续管理入口和证书，通过 File Provider 的动态配置把流量转发到 Server B 的内网 IP 和端口。
+
 ## 目录内容
 
 - `compose.yml`：Traefik 和 Docker socket proxy 服务定义
 - `config/traefik.yml`：Traefik 静态配置
-- `config/dynamic/routes.yml`：通用中间件和 TLS 配置
+- `config/dynamic/routes.yml`：通用中间件和 TLS 配置，也可在同目录增加远程后端路由文件
 - `.env.example`：环境变量模板
 - `.env`：当前服务器配置，不要提交到代码仓库
 - `data/letsencrypt/acme.json`：Let's Encrypt 证书存储文件，不要复制给其他服务器
+- `examples/memos`：同机 Docker Provider 接入示例
+- `examples/remote-webapp`：跨服务器 File Provider 接入示例
 
 ## 配置原则
 
@@ -42,12 +49,27 @@ cp .env.example .env
 - `CLOUDFLARE_DNS_API_TOKEN`：Cloudflare API 令牌，至少需要目标 Zone 的 `Zone / Zone / Read` 和 `Zone / DNS / Edit` 权限。
 - `APP_PROXY_NETWORK`
 - `ACME_EMAIL`
+- `ACME_CA_SERVER`
 - `DOMAIN`
 - `TRAEFIK_DASHBOARD_HOST`
 - `TRAEFIK_DASHBOARD_AUTH`
 
 Traefik 服务通过 `.env` 读取 Cloudflare 令牌、公共业务网络名、ACME 邮箱、证书主域名、控制台域名和控制台凭据；`compose.yml` 使用必填变量校验，漏填时会在启动前直接报错。
 模板会在固定存在的控制台路由上显式声明 `DOMAIN` 和 `*.DOMAIN`，启动后由 Traefik 通过 DNS-01 申请根域名和通配符证书。
+
+`ACME_CA_SERVER` 默认使用 Let's Encrypt staging 接口：
+
+```env
+ACME_CA_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory
+```
+
+staging 适合首次部署、调试 Cloudflare DNS-01、反复重建路由和验证配置，避免过早触发 Let's Encrypt 正式环境限流。staging 签发的证书不被浏览器信任；确认 Traefik 日志里 DNS-01 和证书申请流程都正常后，再改成正式接口：
+
+```env
+ACME_CA_SERVER=https://acme-v02.api.letsencrypt.org/directory
+```
+
+从 staging 切到正式环境时，ACME 账号和证书环境不同。如果 `data/letsencrypt/acme.json` 里只有测试证书，可以停止 Traefik、备份后重置该文件为 `{}`，再启动 Traefik 重新申请正式证书。
 
 控制台使用 Traefik 基础认证（BasicAuth）。可以用本机 `htpasswd` 或临时 Docker 容器生成密码哈希：
 
@@ -138,6 +160,7 @@ chmod 600 .env data/letsencrypt/acme.json
 如果只签发了控制台单域名证书，没有签发通配符证书，优先检查：
 
 - `.env` 是否已经设置 `DOMAIN`，例如 `DOMAIN=example.com`，不要带 `https://` 或通配符前缀。
+- `.env` 的 `ACME_CA_SERVER` 当前是 staging 还是生产接口；staging 证书用于测试，不会被浏览器信任。
 - Traefik 是否已经按新模板重建：`docker compose up -d --force-recreate traefik`。
 - `docker compose config` 展开后，控制台路由是否包含 `tls.domains[0].main` 和 `tls.domains[0].sans`。
 - Traefik 日志里是否有 Cloudflare API 权限、DNS TXT 传播、Let's Encrypt 限流或 `acme.json` JSON 损坏相关错误。
@@ -181,7 +204,17 @@ docker compose logs -f traefik
 
 公开网站、需要被搜索引擎收录的页面，或需要被可信页面 iframe 嵌入的服务，优先使用 `public-security-headers@file`。
 
-## 业务服务接入示例
+## 业务服务接入方式
+
+Traefik 主模板同时启用了 Docker Provider 和 File Provider。选择哪种方式取决于业务应用和 Traefik 是否在同一台 Docker 主机上。
+
+### 方式一：同机 Docker 自动发现
+
+适用场景：
+
+- Traefik 和业务容器在同一台服务器上。
+- 业务容器可以加入 `.env` 中 `APP_PROXY_NETWORK` 指向的共享 Docker 网络。
+- 希望通过 labels 维护路由，避免手写动态后端地址。
 
 业务容器需要加入 `APP_PROXY_NETWORK` 指向的公共网络，并显式开启 Traefik：
 
@@ -207,6 +240,74 @@ labels:
 
 业务服务接入时，主 Traefik 配置仍然不要改。只在业务服务目录里改该服务自己的域名、端口、镜像、数据目录和 labels；公共网络名继续通过 `APP_PROXY_NETWORK` 保持一致。
 
+### 方式二：跨服务器 File Provider 后端
+
+适用场景：
+
+- Traefik 在 Server A，业务应用在 Server B。
+- 两台服务器之间有 VPC、内网、专线、WireGuard、Tailscale 或其他私有网络。
+- 业务应用不能加入 Traefik 所在主机的 Docker 网络。
+
+这种架构下，不建议让 Traefik 直接连接远程 Docker socket 做自动发现。更稳妥的做法是：
+
+- Server A 的 Traefik 继续暴露公网 `80/443`，负责 TLS、路由、中间件和访问日志。
+- Server B 的业务容器把服务端口发布到宿主机内网地址，或使用 `network_mode: host`。
+- Server B 防火墙只允许 Server A 的内网 IP 访问业务端口。
+- Server A 在 `config/dynamic/` 下为远程应用新增一个动态配置文件，手动写入 `http://Server-B-内网IP:端口`。
+
+Server B 应用示例：
+
+```yaml
+services:
+  webapp:
+    image: your-web-image:latest
+    restart: unless-stopped
+    ports:
+      - "10.0.2.20:8080:80"
+```
+
+如果不能绑定到固定内网 IP，可以使用 `"8080:80"`，但必须用安全组或防火墙限制只允许 Server A 访问。
+
+Server A 动态配置示例：
+
+```yaml
+http:
+  routers:
+    remote-app-router:
+      rule: Host(`app.example.com`)
+      entryPoints:
+        - websecure
+      middlewares:
+        - default-security-headers@file
+        - compress@file
+      service: remote-app-service
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    remote-app-service:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: http://10.0.2.20:8080
+        healthCheck:
+          path: /
+          interval: 30s
+          timeout: 5s
+```
+
+完整跨服务器示例见 [examples/remote-webapp](examples/remote-webapp)。复制其中的 `dynamic/remote-app.yml` 到主目录 `config/dynamic/` 后，按真实域名、内网 IP、端口和健康检查路径修改即可。
+
+远程后端使用 HTTPS 时，可以在动态配置中增加 `serversTransports`，为内网 CA、自签证书或后端 SNI 设置专用传输配置。优先配置可信 CA，不要把跳过证书校验作为默认方案。
+
+跨服务器排查顺序：
+
+- 在 Server A 上执行 `curl -fsS http://Server-B-内网IP:端口/`，先确认内网连通性；如果应用有 `/health`，优先检查专用健康检查路径。
+- 检查 Server B 的容器端口是否发布到宿主机，应用是否监听正确地址。
+- 检查 Server B 防火墙、安全组或云 ACL 是否允许 Server A 的内网 IP。
+- 查看 `docker compose logs -f traefik`，确认 File Provider 动态配置加载成功。
+- 访问仍异常时，再检查域名解析、TLS 签发、健康检查路径和中间件。
+
 ## 生产注意事项
 
 - 不要复用其他服务器的 `data/letsencrypt/acme.json`。
@@ -222,7 +323,10 @@ labels:
 
 - https://doc.traefik.io/traefik/getting-started/docker/
 - https://doc.traefik.io/traefik/reference/install-configuration/providers/docker/
+- https://doc.traefik.io/traefik/reference/install-configuration/providers/others/file/
 - https://doc.traefik.io/traefik/reference/install-configuration/entrypoints/
 - https://doc.traefik.io/traefik/reference/install-configuration/api-dashboard/
 - https://doc.traefik.io/traefik/reference/install-configuration/tls/certificate-resolvers/acme/
+- https://doc.traefik.io/traefik/reference/routing-configuration/http/load-balancing/service/
+- https://doc.traefik.io/traefik/reference/routing-configuration/http/load-balancing/serverstransport/
 - https://go-acme.github.io/lego/dns/cloudflare/

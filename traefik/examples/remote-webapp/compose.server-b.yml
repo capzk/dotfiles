@@ -1,0 +1,14 @@
+name: remote-webapp
+
+services:
+  webapp:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    # 推荐绑定到 Server B 的内网 IP，避免业务端口监听公网地址。
+    # 如果宿主机没有这个内网地址，请替换为真实内网 IP。
+    ports:
+      - "10.0.2.20:8080:80"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+    security_opt:
+      - no-new-privileges:true

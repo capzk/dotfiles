@@ -1,0 +1,35 @@
+http:
+  routers:
+    remote-app-router:
+      rule: Host(`remote.example.com`)
+      entryPoints:
+        - websecure
+      middlewares:
+        - default-security-headers@file
+        - compress@file
+      service: remote-app-service
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    remote-app-service:
+      loadBalancer:
+        passHostHeader: true
+        # 远程后端使用 HTTPS 且需要自定义 CA/SNI 时，取消下一行注释。
+        # serversTransport: remote-app-transport
+        servers:
+          # Server B 的内网 IP 和应用发布端口。
+          - url: http://10.0.2.20:8080
+        healthCheck:
+          # 真实应用建议替换成专用健康检查路径，例如 /health。
+          path: /
+          interval: 30s
+          timeout: 5s
+
+  # 如果远程后端使用 HTTPS 且证书不是公共 CA 签发，建议挂载内网 CA 后启用：
+  #
+  # serversTransports:
+  #   remote-app-transport:
+  #     serverName: remote.internal.example.com
+  #     rootCAs:
+  #       - /etc/traefik/certs/internal-ca.pem
